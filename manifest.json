@@ -1,0 +1,38 @@
+{
+  "name": "Terraza — Sol & Sombra",
+  "short_name": "Terraza",
+  "description": "Comprueba si una terraza está al sol o a la sombra antes de sentarte.",
+  "display": "standalone",
+  "background_color": "#0e0e12",
+  "theme_color": "#0e0e12",
+  "start_url": "https://uishhhhh.github.io/SOL-SOMBRA/terraza-sol-sombra.html",
+  "orientation": "portrait",
+  "id": "https://uishhhhh.github.io/SOL-SOMBRA/terraza-sol-sombra.html",
+  "icons": [
+    {
+      "src": "https://uishhhhh.github.io/SOL-SOMBRA/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://uishhhhh.github.io/SOL-SOMBRA/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://uishhhhh.github.io/SOL-SOMBRA/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "https://uishhhhh.github.io/SOL-SOMBRA/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "scope": "https://uishhhhh.github.io/SOL-SOMBRA/"
+}
