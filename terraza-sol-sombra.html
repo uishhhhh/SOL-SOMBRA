@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Terraza — Sol &amp; Sombra</title>
+
+<!-- PWA -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Terraza">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0e0e12">
+<meta name="description" content="¿Esa terraza está al sol o a la sombra? Compruébalo antes de sentarte.">
+<link rel="manifest" href='data:application/manifest+json,{"name":"Terraza — Sol %26 Sombra","short_name":"Terraza","display":"standalone","background_color":"%230e0e12","theme_color":"%230e0e12","start_url":"."}'>
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect width='180' height='180' rx='40' fill='%230e0e12'/><circle cx='90' cy='78' r='34' fill='%23F5A623'/><rect x='40' y='118' width='100' height='14' rx='7' fill='%233A7BD5'/></svg>">
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sun: #F5A623;
+  --shade: #3A7BD5;
+  --bg: #0e0e12;
+  --surface: #18181f;
+  --surface-2: #1f1f29;
+  --border: #2a2a35;
+  --text: #e8e8ee;
+  --muted: #6b6b80;
+  --danger: #e05c5c;
+  --radius: 14px;
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'DM Sans', sans-serif;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* grano sutil */
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 2000; opacity: .35;
+}
+
+#map { position: fixed; inset: 0; z-index: 1; background: var(--bg); }
+.leaflet-container { font-family: 'DM Sans', sans-serif; }
+.leaflet-control-attribution { background: rgba(14,14,18,.7) !important; color: var(--muted) !important; font-size: 9px !important; }
+.leaflet-control-attribution a { color: var(--muted) !important; }
+.leaflet-control-zoom { display: none; }
+
+/* ---------- top bar ---------- */
+.topbar {
+  position: fixed; z-index: 1000;
+  top: max(12px, env(safe-area-inset-top));
+  left: 12px; right: 12px;
+  display: flex; gap: 8px; align-items: flex-start;
+}
+
+.search-wrap { position: relative; flex: 1; }
+
+.search-box {
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(24,24,31,.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0 12px;
+  height: 46px;
+}
+.search-box svg { flex: none; }
+.search-box input {
+  flex: 1; min-width: 0;
+  background: none; border: none; outline: none;
+  color: var(--text);
+  font: 400 15px 'DM Sans', sans-serif;
+  height: 100%;
+}
+.search-box input::placeholder { color: var(--muted); }
+
+.suggestions {
+  position: absolute; top: 52px; left: 0; right: 0;
+  background: rgba(24,24,31,.97);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  display: none;
+  max-height: 46vh; overflow-y: auto;
+}
+.suggestions.open { display: block; }
+.sug {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.sug:last-child { border-bottom: none; }
+.sug:active, .sug:hover { background: var(--surface-2); }
+.sug .n { font-size: 14px; font-weight: 500; }
+.sug .d { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sug .tag {
+  align-self: flex-start; margin-top: 3px;
+  font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--sun); border: 1px solid rgba(245,166,35,.4);
+  border-radius: 4px; padding: 1px 5px;
+}
+.sug .tag.addr { color: var(--shade); border-color: rgba(58,123,213,.4); }
+.sug-empty { padding: 14px; font-size: 13px; color: var(--muted); text-align: center; }
+
+.btn-gps {
+  flex: none; width: 46px; height: 46px;
+  border-radius: var(--radius);
+  background: rgba(24,24,31,.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  color: var(--text);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.btn-gps:active { background: var(--surface-2); }
+.btn-gps.loading svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- pill de hora ---------- */
+.timepill {
+  position: fixed; z-index: 999;
+  top: calc(max(12px, env(safe-area-inset-top)) + 56px);
+  right: 12px;
+  background: rgba(24,24,31,.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; font-weight: 500;
+}
+.timepill .sim-badge {
+  display: none;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 11px; letter-spacing: .12em;
+  color: var(--bg);
+  background: var(--sun);
+  border-radius: 999px;
+  padding: 2px 8px 1px;
+}
+.timepill.sim { border-color: rgba(245,166,35,.5); }
+.timepill.sim .sim-badge { display: inline-block; }
+
+/* ---------- panel inferior ---------- */
+.panel {
+  position: fixed; z-index: 1000;
+  left: 12px; right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  background: rgba(24,24,31,.94);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 14px 16px 16px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+.verdict {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 12px;
+}
+.verdict-icon {
+  width: 44px; height: 44px; flex: none;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transition: box-shadow .3s;
+}
+.verdict-text { flex: 1; min-width: 0; }
+.verdict-main {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 30px; line-height: 1;
+  letter-spacing: .05em;
+}
+.verdict-main.sol { color: var(--sun); }
+.verdict-main.sombra { color: var(--shade); }
+.verdict-main.noche { color: var(--muted); }
+.verdict-sub { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+
+.verdict.sol .verdict-icon { box-shadow: 0 0 22px rgba(245,166,35,.35); border-color: rgba(245,166,35,.4); }
+.verdict.sombra .verdict-icon { box-shadow: 0 0 22px rgba(58,123,213,.3); border-color: rgba(58,123,213,.4); }
+
+/* slider */
+.time-row { display: flex; align-items: center; gap: 10px; }
+.time-row input[type=range] {
+  flex: 1; appearance: none; -webkit-appearance: none;
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, #23233040 0%, var(--shade) 20%, var(--sun) 50%, var(--shade) 80%, #23233040 100%);
+  outline: none;
+}
+.time-row input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--text);
+  border: 3px solid var(--bg);
+  box-shadow: 0 1px 6px rgba(0,0,0,.5);
+  cursor: pointer;
+}
+.time-row input[type=range]::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--text); border: 3px solid var(--bg);
+  cursor: pointer;
+}
+.time-label {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 20px; letter-spacing: .05em;
+  min-width: 56px; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* fecha + presets */
+.date-row {
+  display: flex; gap: 6px; margin-top: 10px;
+  align-items: center; flex-wrap: wrap;
+}
+.date-row input[type=date] {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text);
+  font: 500 12px 'DM Sans', sans-serif;
+  padding: 6px 8px;
+  color-scheme: dark;
+}
+.chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 500 11px 'DM Sans', sans-serif;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip:active { background: var(--border); }
+.chip.now { color: var(--sun); border-color: rgba(245,166,35,.4); }
+
+/* toast / aviso GPS */
+.notice {
+  position: fixed; z-index: 1500;
+  left: 12px; right: 12px;
+  top: calc(max(12px, env(safe-area-inset-top)) + 56px);
+  max-width: 440px; margin: 0 auto;
+  background: rgba(24,24,31,.97);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 13px; line-height: 1.5;
+  display: none;
+}
+.notice.open { display: block; }
+.notice b { color: var(--sun); }
+.notice .close {
+  float: right; cursor: pointer; color: var(--muted);
+  font-size: 18px; line-height: 1; padding: 0 0 6px 10px;
+}
+
+.toast {
+  position: fixed; z-index: 1500;
+  bottom: 190px; left: 50%; transform: translateX(-50%);
+  background: rgba(24,24,31,.95);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 12.5px; color: var(--muted);
+  opacity: 0; pointer-events: none;
+  transition: opacity .3s;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+
+/* splash inicial */
+.splash {
+  position: fixed; inset: 0; z-index: 3000;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 6px; text-align: center; padding: 24px;
+  transition: opacity .5s;
+}
+.splash.hide { opacity: 0; pointer-events: none; }
+.splash h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: clamp(56px, 16vw, 90px);
+  line-height: .92; letter-spacing: .04em;
+  background: linear-gradient(135deg, var(--sun) 0%, #fff 55%, var(--shade) 100%);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.splash p {
+  color: var(--muted); font-size: 13px;
+  letter-spacing: .14em; text-transform: uppercase;
+}
+.splash .hint { margin-top: 26px; font-size: 13px; color: var(--text); letter-spacing: 0; text-transform: none; opacity: .8; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="splash" id="splash">
+  <h1>SOL &amp;<br>SOMBRA</h1>
+  <p>Terrazas · Posición solar real</p>
+  <div class="hint">Busca un bar o toca el mapa para empezar</div>
+</div>
+
+<div class="topbar">
+  <div class="search-wrap">
+    <div class="search-box">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b6b80" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="text" placeholder="Bar, restaurante o dirección…" autocomplete="off" enterkeyhint="search">
+    </div>
+    <div class="suggestions" id="sugs"></div>
+  </div>
+  <button class="btn-gps" id="gpsBtn" aria-label="Usar mi ubicación">
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+  </button>
+</div>
+
+<div class="timepill" id="timepill">
+  <span class="sim-badge">Simulación</span>
+  <span id="pillTime">--:--</span>
+</div>
+
+<div class="notice" id="gpsNotice">
+  <span class="close" id="gpsNoticeClose">×</span>
+  <b>No puedo acceder al GPS.</b><br>
+  Este entorno bloquea la geolocalización (política del navegador o del iframe donde se ejecuta la app). No es un fallo tuyo ni del móvil: si instalas la app desde el navegador o la abres como página independiente, el GPS funcionará con normalidad. Mientras tanto, usa el buscador o toca el mapa.
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="panel">
+  <div class="verdict" id="verdict">
+    <div class="verdict-icon" id="vIcon">📍</div>
+    <div class="verdict-text">
+      <div class="verdict-main" id="vMain">ELIGE UN SITIO</div>
+      <div class="verdict-sub" id="vSub">Busca una terraza o toca el mapa</div>
+    </div>
+  </div>
+
+  <div class="time-row">
+    <input type="range" id="timeSlider" min="0" max="1439" step="5" value="720" aria-label="Hora del día">
+    <div class="time-label" id="timeLabel">12:00</div>
+  </div>
+
+  <div class="date-row">
+    <input type="date" id="dateInput" aria-label="Fecha">
+    <button class="chip now" id="nowBtn">● Ahora</button>
+    <button class="chip" data-preset="eq-mar">Equinoccio mar</button>
+    <button class="chip" data-preset="sol-jun">Solsticio jun</button>
+    <button class="chip" data-preset="eq-sep">Equinoccio sep</button>
+    <button class="chip" data-preset="sol-dic">Solsticio dic</button>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ============================================================
+   POSICIÓN SOLAR — algoritmo simplificado de Meeus (client-side)
+   ============================================================ */
+const RAD = Math.PI / 180;
+const DAY_MS = 86400000, J1970 = 2440588, J2000 = 2451545;
+const OBLIQUITY = RAD * 23.4397;
+
+function toDays(date) { return date.valueOf() / DAY_MS - 0.5 + J1970 - J2000; }
+function solarMeanAnomaly(d) { return RAD * (357.5291 + 0.98560028 * d); }
+function eclipticLongitude(M) {
+  const C = RAD * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
+  const P = RAD * 102.9372;
+  return M + C + P + Math.PI;
+}
+function declination(l) { return Math.asin(Math.sin(l) * Math.sin(OBLIQUITY)); }
+function rightAscension(l) { return Math.atan2(Math.sin(l) * Math.cos(OBLIQUITY), Math.cos(l)); }
+function siderealTime(d, lw) { return RAD * (280.16 + 360.9856235 * d) - lw; }
+
+/** Devuelve {azimuth: grados desde el norte (0-360), altitude: grados sobre el horizonte} */
+function sunPosition(date, lat, lng) {
+  const lw = RAD * -lng, phi = RAD * lat, d = toDays(date);
+  const M = solarMeanAnomaly(d);
+  const L = eclipticLongitude(M);
+  const dec = declination(L), ra = rightAscension(L);
+  const H = siderealTime(d, lw) - ra;
+  const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+  let az = Math.atan2(Math.sin(H), Math.cos(H) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
+  az = az / RAD + 180; // 0 = norte, sentido horario
+  return { azimuth: (az + 360) % 360, altitude: alt / RAD };
+}
+
+/* ============================================================
+   ESTADO GLOBAL
+   ============================================================ */
+const state = {
+  point: null,          // {lat, lng} seleccionado
+  simulating: false,    // false = hora real
+  simDate: new Date(),  // fecha/hora simulada
+  buildings: [],        // [{coords:[[lat,lng],...], height}]
+  buildingsCenter: null,
+  fetching: false,
+};
+
+function currentDate() {
+  return state.simulating ? new Date(state.simDate) : new Date();
+}
+
+/* ============================================================
+   MAPA
+   ============================================================ */
+const map = L.map('map', { zoomControl: false, attributionControl: true })
+  .setView([42.8806, -8.5449], 17); // Santiago de Compostela por defecto
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO',
+  maxZoom: 19, subdomains: 'abcd'
+}).addTo(map);
+
+const shadowLayer = L.layerGroup().addTo(map);
+const buildingLayer = L.layerGroup().addTo(map);
+const sunLayer = L.layerGroup().addTo(map);
+let marker = null;
+
+/* ============================================================
+   GEOMETRÍA — metros <-> grados
+   ============================================================ */
+function metersOffset(lat, dxE, dyN) {
+  return [dyN / 111320, dxE / (111320 * Math.cos(lat * RAD))];
+}
+
+/* Vector de sombra en metros para una altura dada */
+function shadowVector(sun, height) {
+  if (sun.altitude <= 0.5) return null;
+  let len = height / Math.tan(sun.altitude * RAD);
+  if (len > 200) len = 200; // tope
+  const dir = (sun.azimuth + 180) * RAD; // la sombra cae al lado opuesto del sol
+  return { dxE: len * Math.sin(dir), dyN: len * Math.cos(dir), len };
+}
+
+/* ============================================================
+   OVERPASS — edificios cercanos
+   ============================================================ */
+async function fetchBuildings(lat, lng) {
+  if (state.fetching) return;
+  // no repetir si ya tenemos edificios de una zona a <120m
+  if (state.buildingsCenter) {
+    const d = map.distance([lat, lng], state.buildingsCenter);
+    if (d < 120 && state.buildings.length) return;
+  }
+  state.fetching = true;
+  const q = `[out:json][timeout:25];(way["building"](around:280,${lat},${lng}););out body geom;`;
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      body: 'data=' + encodeURIComponent(q),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    if (!res.ok) throw new Error('overpass ' + res.status);
+    const data = await res.json();
+    state.buildings = (data.elements || [])
+      .filter(el => el.type === 'way' && el.geometry && el.geometry.length > 2)
+      .map(el => {
+        let h = 9; // altura por defecto si OSM no la tiene
+        const t = el.tags || {};
+        if (t.height) { const p = parseFloat(t.height); if (!isNaN(p)) h = p; }
+        else if (t['building:levels']) { const lv = parseFloat(t['building:levels']); if (!isNaN(lv)) h = lv * 3; }
+        return { coords: el.geometry.map(g => [g.lat, g.lon]), height: h };
+      });
+    state.buildingsCenter = [lat, lng];
+    render();
+  } catch (e) {
+    showToast('No se pudieron cargar los edificios (Overpass saturado). Reintenta en un momento.');
+  } finally {
+    state.fetching = false;
+  }
+}
+
+/* ============================================================
+   RENDER — sombras, edificios, sol, veredicto
+   ============================================================ */
+function render() {
+  shadowLayer.clearLayers();
+  buildingLayer.clearLayers();
+  sunLayer.clearLayers();
+
+  const date = currentDate();
+  updatePill(date);
+
+  const center = state.point || map.getCenter();
+  const sun = sunPosition(date, center.lat, center.lng);
+  const night = sun.altitude <= 0;
+
+  // edificios (contorno sutil)
+  for (const b of state.buildings) {
+    L.polygon(b.coords, {
+      color: '#3a3a48', weight: 1, fillColor: '#22222d',
+      fillOpacity: .5, interactive: false
+    }).addTo(buildingLayer);
+  }
+
+  // sombras
+  const shadowPolys = [];
+  if (!night) {
+    for (const b of state.buildings) {
+      const v = shadowVector(sun, b.height);
+      if (!v) continue;
+      const pts = b.coords;
+      const proj = pts.map(p => {
+        const [dLat, dLng] = metersOffset(p[0], v.dxE, v.dyN);
+        return [p[0] + dLat, p[1] + dLng];
+      });
+      // huella proyectada + cuadriláteros de conexión por arista
+      shadowPolys.push(proj);
+      for (let i = 0; i < pts.length; i++) {
+        const j = (i + 1) % pts.length;
+        shadowPolys.push([pts[i], pts[j], proj[j], proj[i]]);
+      }
+    }
+    for (const poly of shadowPolys) {
+      L.polygon(poly, {
+        stroke: false, fillColor: '#070d1c', fillOpacity: .5, interactive: false
+      }).addTo(shadowLayer);
+    }
+  }
+
+  // elementos alrededor del punto seleccionado
+  if (state.point) {
+    const p = state.point;
+    if (!night) {
+      // flecha hacia el sol (80 m)
+      const dirSun = sun.azimuth * RAD;
+      const [aLat, aLng] = metersOffset(p.lat, 80 * Math.sin(dirSun), 80 * Math.cos(dirSun));
+      L.polyline([[p.lat, p.lng], [p.lat + aLat, p.lng + aLng]], {
+        color: '#F5A623', weight: 3, opacity: .9, dashArray: '2 7', interactive: false
+      }).addTo(sunLayer);
+      L.circleMarker([p.lat + aLat, p.lng + aLng], {
+        radius: 7, color: '#F5A623', weight: 2, fillColor: '#F5A623', fillOpacity: .9, interactive: false
+      }).addTo(sunLayer);
+
+      // cono de sombra orientativo (objeto de 9 m en ese punto)
+      const v = shadowVector(sun, 9);
+      if (v) {
+        const spread = 10 * RAD;
+        const base = Math.atan2(v.dxE, v.dyN);
+        const cone = [[p.lat, p.lng]];
+        for (const a of [base - spread, base, base + spread]) {
+          const [dLat, dLng] = metersOffset(p.lat, v.len * Math.sin(a), v.len * Math.cos(a));
+          cone.push([p.lat + dLat, p.lng + dLng]);
+        }
+        L.polygon(cone, { stroke: false, fillColor: '#3A7BD5', fillOpacity: .18, interactive: false }).addTo(sunLayer);
+      }
+    }
+    verdict(p, sun, shadowPolys, night);
+  }
+}
+
+/* punto dentro de polígono (ray casting, en lat/lng) */
+function inPoly(pt, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const yi = poly[i][0], xi = poly[i][1], yj = poly[j][0], xj = poly[j][1];
+    if (((yi > pt.lat) !== (yj > pt.lat)) &&
+        (pt.lng < (xj - xi) * (pt.lat - yi) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function verdict(p, sun, shadowPolys, night) {
+  const box = document.getElementById('verdict');
+  const icon = document.getElementById('vIcon');
+  const main = document.getElementById('vMain');
+  const sub = document.getElementById('vSub');
+  box.classList.remove('sol', 'sombra');
+
+  if (night) {
+    icon.textContent = '🌙';
+    main.textContent = 'NOCHE';
+    main.className = 'verdict-main noche';
+    sub.textContent = 'El sol está bajo el horizonte. Aquí todo es sombra, campeón.';
+    return;
+  }
+
+  let shaded = false;
+  for (const poly of shadowPolys) {
+    if (inPoly(p, poly)) { shaded = true; break; }
+  }
+  // también cuenta estar dentro del propio edificio
+  if (!shaded) {
+    for (const b of state.buildings) {
+      if (inPoly(p, b.coords)) { shaded = true; break; }
+    }
+  }
+
+  const info = `Sol a ${Math.round(sun.altitude)}° de altura · azimut ${Math.round(sun.azimuth)}°` +
+    (state.buildings.length ? '' : ' · sin datos de edificios aún');
+
+  if (shaded) {
+    box.classList.add('sombra');
+    icon.textContent = '⛱️';
+    main.textContent = 'A LA SOMBRA';
+    main.className = 'verdict-main sombra';
+    sub.textContent = info;
+  } else {
+    box.classList.add('sol');
+    icon.textContent = '☀️';
+    main.textContent = 'AL SOL';
+    main.className = 'verdict-main sol';
+    sub.textContent = info;
+  }
+}
+
+/* ============================================================
+   SELECCIÓN DE PUNTO
+   ============================================================ */
+function setPoint(lat, lng, label) {
+  state.point = { lat, lng };
+  hideSplash();
+  if (marker) marker.remove();
+  marker = L.circleMarker([lat, lng], {
+    radius: 9, color: '#fff', weight: 2.5, fillColor: '#e8e8ee', fillOpacity: .95
+  }).addTo(map);
+  if (label) marker.bindTooltip(label, { direction: 'top', offset: [0, -10] });
+  map.setView([lat, lng], Math.max(map.getZoom(), 17));
+  fetchBuildings(lat, lng);
+  render();
+}
+
+map.on('click', e => setPoint(e.latlng.lat, e.latlng.lng));
+
+function hideSplash() {
+  document.getElementById('splash').classList.add('hide');
+}
+map.on('movestart', hideSplash);
+setTimeout(hideSplash, 6000);
+
+/* ============================================================
+   BUSCADOR — Overpass (negocios) + Nominatim (direcciones)
+   ============================================================ */
+const qInput = document.getElementById('q');
+const sugsBox = document.getElementById('sugs');
+let searchTimer = null, searchSeq = 0;
+
+qInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  const q = qInput.value.trim();
+  if (q.length < 3) { sugsBox.classList.remove('open'); return; }
+  searchTimer = setTimeout(() => runSearch(q), 450);
+});
+
+qInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    clearTimeout(searchTimer);
+    const q = qInput.value.trim();
+    if (q.length >= 2) runSearch(q);
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-wrap')) sugsBox.classList.remove('open');
+});
+
+async function runSearch(q) {
+  const seq = ++searchSeq;
+  sugsBox.innerHTML = '<div class="sug-empty">Buscando…</div>';
+  sugsBox.classList.add('open');
+
+  const c = map.getCenter();
+  const results = [];
+
+  // 1) Overpass: negocios por nombre cerca del centro del mapa
+  const safe = q.replace(/["\\]/g, '');
+  const oq = `[out:json][timeout:10];(
+    node["name"~"${safe}",i]["amenity"~"bar|cafe|restaurant|pub|biergarten|ice_cream"](around:6000,${c.lat},${c.lng});
+    way["name"~"${safe}",i]["amenity"~"bar|cafe|restaurant|pub|biergarten|ice_cream"](around:6000,${c.lat},${c.lng});
+  );out center 8;`;
+
+  const overpass = fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    body: 'data=' + encodeURIComponent(oq),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  }).then(r => r.ok ? r.json() : { elements: [] }).catch(() => ({ elements: [] }));
+
+  // 2) Nominatim: direcciones y sitios en general
+  const nominatim = fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=es&q=${encodeURIComponent(q)}`
+  ).then(r => r.ok ? r.json() : []).catch(() => []);
+
+  const [oData, nData] = await Promise.all([overpass, nominatim]);
+  if (seq !== searchSeq) return; // llegó tarde, hay una búsqueda más nueva
+
+  for (const el of (oData.elements || [])) {
+    const lat = el.lat ?? el.center?.lat, lng = el.lon ?? el.center?.lon;
+    if (lat == null) continue;
+    const t = el.tags || {};
+    results.push({
+      lat, lng, name: t.name || 'Sin nombre',
+      detail: [t.amenity, t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' · '),
+      kind: 'negocio'
+    });
+  }
+  for (const r of nData) {
+    results.push({
+      lat: parseFloat(r.lat), lng: parseFloat(r.lon),
+      name: r.display_name.split(',')[0],
+      detail: r.display_name.split(',').slice(1, 4).join(',').trim(),
+      kind: 'dirección'
+    });
+  }
+
+  if (!results.length) {
+    sugsBox.innerHTML = '<div class="sug-empty">Nada por aquí. Prueba con otro nombre o una dirección.</div>';
+    return;
+  }
+
+  sugsBox.innerHTML = '';
+  for (const r of results.slice(0, 10)) {
+    const div = document.createElement('div');
+    div.className = 'sug';
+    div.innerHTML = `<span class="n"></span><span class="d"></span>` +
+      `<span class="tag ${r.kind === 'dirección' ? 'addr' : ''}">${r.kind}</span>`;
+    div.querySelector('.n').textContent = r.name;
+    div.querySelector('.d').textContent = r.detail || '';
+    div.addEventListener('click', () => {
+      sugsBox.classList.remove('open');
+      qInput.value = r.name;
+      qInput.blur();
+      setPoint(r.lat, r.lng, r.name);
+    });
+    sugsBox.appendChild(div);
+  }
+}
+
+/* ============================================================
+   GPS — con detección de bloqueo por iframe/política
+   ============================================================ */
+const gpsBtn = document.getElementById('gpsBtn');
+const gpsNotice = document.getElementById('gpsNotice');
+document.getElementById('gpsNoticeClose').addEventListener('click', () => gpsNotice.classList.remove('open'));
+
+gpsBtn.addEventListener('click', () => {
+  if (!('geolocation' in navigator)) { gpsNotice.classList.add('open'); return; }
+  gpsBtn.classList.add('loading');
+  try {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        gpsBtn.classList.remove('loading');
+        setPoint(pos.coords.latitude, pos.coords.longitude, 'Estás aquí');
+      },
+      err => {
+        gpsBtn.classList.remove('loading');
+        // code 1 = permiso denegado o bloqueado por permissions-policy del iframe
+        if (err.code === 1) gpsNotice.classList.add('open');
+        else showToast('No se pudo obtener la ubicación. Inténtalo de nuevo.');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  } catch (e) {
+    gpsBtn.classList.remove('loading');
+    gpsNotice.classList.add('open');
+  }
+});
+
+/* ============================================================
+   TIEMPO — slider, fecha, presets, modo real
+   ============================================================ */
+const slider = document.getElementById('timeSlider');
+const timeLabel = document.getElementById('timeLabel');
+const dateInput = document.getElementById('dateInput');
+const nowBtn = document.getElementById('nowBtn');
+const pill = document.getElementById('timepill');
+const pillTime = document.getElementById('pillTime');
+
+function fmtHM(d) {
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function fmtDate(d) {
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+}
+function toISODate(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+function updatePill(date) {
+  pillTime.textContent = fmtHM(date) + ' · ' + fmtDate(date);
+  pill.classList.toggle('sim', state.simulating);
+}
+
+function syncControls(date) {
+  slider.value = date.getHours() * 60 + date.getMinutes();
+  timeLabel.textContent = fmtHM(date);
+  dateInput.value = toISODate(date);
+}
+
+slider.addEventListener('input', () => {
+  const mins = parseInt(slider.value, 10);
+  const base = state.simulating ? state.simDate : new Date();
+  base.setHours(Math.floor(mins / 60), mins % 60, 0, 0);
+  state.simDate = base;
+  state.simulating = true;
+  timeLabel.textContent = fmtHM(base);
+  render();
+});
+
+dateInput.addEventListener('change', () => {
+  if (!dateInput.value) return;
+  const [y, m, d] = dateInput.value.split('-').map(Number);
+  const base = state.simulating ? new Date(state.simDate) : new Date();
+  base.setFullYear(y, m - 1, d);
+  state.simDate = base;
+  state.simulating = true;
+  render();
+});
+
+nowBtn.addEventListener('click', () => {
+  state.simulating = false;
+  syncControls(new Date());
+  render();
+});
+
+const PRESETS = {
+  'eq-mar': [2, 20], 'sol-jun': [5, 21], 'eq-sep': [8, 22], 'sol-dic': [11, 21]
+};
+document.querySelectorAll('.chip[data-preset]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const [month, day] = PRESETS[btn.dataset.preset];
+    const base = state.simulating ? new Date(state.simDate) : new Date();
+    base.setMonth(month, day);
+    base.setHours(14, 0, 0, 0); // hora de terraza por excelencia
+    state.simDate = base;
+    state.simulating = true;
+    syncControls(base);
+    render();
+  });
+});
+
+/* reloj en vivo */
+syncControls(new Date());
+setInterval(() => {
+  if (!state.simulating) { syncControls(new Date()); render(); }
+}, 60000);
+
+/* ============================================================
+   VARIOS
+   ============================================================ */
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
+}
+
+/* Service worker: solo si la app está servida como página propia.
+   En un iframe/artifact falla en silencio y no pasa nada. */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+
+render();
+</script>
+</body>
+</html>
