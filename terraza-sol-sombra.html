@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Terraza — Sol &amp; Sombra</title>
 
 <!-- PWA -->
@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-title" content="Terraza">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#0e0e12">
-<meta name="description" content="¿Esa terraza está al sol o a la sombra? Compruébalo antes de sentarte.">
+<meta name="description" content="Estimación de sol y sombra en terrazas según edificios de OpenStreetMap. Compruébalo antes de sentarte.">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="https://uishhhhh.github.io/SOL-SOMBRA/icon-192.png">
 
@@ -54,7 +54,7 @@ body::after {
   pointer-events: none; z-index: 2000; opacity: .35;
 }
 
-#map { position: fixed; inset: 0; z-index: 1; background: var(--bg); }
+#map { position: fixed; inset: 0; z-index: 1; background: #eceae6; }
 .leaflet-container { font-family: 'DM Sans', sans-serif; }
 .leaflet-control-attribution { background: rgba(14,14,18,.7) !important; color: var(--muted) !important; font-size: 9px !important; }
 .leaflet-control-attribution a { color: var(--muted) !important; }
@@ -188,7 +188,7 @@ body::after {
 .verdict-text { flex: 1; min-width: 0; }
 .verdict-main {
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 30px; line-height: 1;
+  font-size: clamp(21px, 6.4vw, 27px); line-height: .95;
   letter-spacing: .05em;
 }
 .verdict-main.sol { color: var(--sun); }
@@ -313,17 +313,56 @@ body::after {
 }
 .splash .hint { margin-top: 26px; font-size: 13px; color: var(--text); letter-spacing: 0; text-transform: none; opacity: .8; }
 
+/* badge de confianza */
+.conf {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase;
+  border-radius: 5px; padding: 2px 7px;
+  margin-top: 5px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.conf::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.conf.alta { color: #6fc98a; border-color: rgba(111,201,138,.4); }
+.conf.alta::before { background: #6fc98a; }
+.conf.media { color: var(--sun); border-color: rgba(245,166,35,.4); }
+.conf.media::before { background: var(--sun); }
+.conf.baja { color: var(--danger); border-color: rgba(224,92,92,.4); }
+.conf.baja::before { background: var(--danger); }
+.conf[hidden] { display: none; }
+
+.verdict-main.aviso { color: var(--danger); }
+
+/* banner de consentimiento de analítica */
+.consent {
+  position: fixed; z-index: 1600;
+  left: 12px; right: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  max-width: 480px; margin: 0 auto;
+  background: rgba(24,24,31,.98);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  font-size: 12.5px; line-height: 1.5; color: var(--text);
+  display: none;
+}
+.consent.open { display: block; }
+.consent .btns { display: flex; gap: 8px; margin-top: 10px; }
+.consent button {
+  flex: 1; padding: 9px 0;
+  border-radius: 9px; border: 1px solid var(--border);
+  font: 600 12.5px 'DM Sans', sans-serif;
+  cursor: pointer;
+}
+.consent .ok { background: var(--sun); color: var(--bg); border-color: var(--sun); }
+.consent .no { background: var(--surface-2); color: var(--text); }
+
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
 </style>
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-TFETQKRHR4"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-  gtag('config', 'G-TFETQKRHR4');
-</script>
 </head>
 <body>
 
@@ -331,7 +370,7 @@ body::after {
 
 <div class="splash" id="splash">
   <h1>SOL &amp;<br>SOMBRA</h1>
-  <p>Terrazas · Posición solar real</p>
+  <p>Terrazas · Estimación de sol y sombra</p>
   <div class="hint">Busca un bar o toca el mapa para empezar</div>
 </div>
 
@@ -339,7 +378,7 @@ body::after {
   <div class="search-wrap">
     <div class="search-box">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b6b80" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input id="q" type="text" placeholder="Bar, restaurante o dirección…" autocomplete="off" enterkeyhint="search">
+      <input id="q" type="text" placeholder="Bar, restaurante o dirección…" autocomplete="off" enterkeyhint="search" maxlength="60">
     </div>
     <div class="suggestions" id="sugs"></div>
   </div>
@@ -361,12 +400,27 @@ body::after {
 
 <div class="toast" id="toast"></div>
 
+<div class="notice" id="estNotice">
+  <span class="close" id="estNoticeClose">×</span>
+  <b>Esto es una estimación.</b><br>
+  El cálculo usa edificios de OpenStreetMap y una proyección geométrica simplificada. No contempla árboles, toldos, sombrillas ni relieve, y algunos edificios no tienen altura registrada. Úsalo como orientación, no como verdad absoluta.
+</div>
+
+<div class="consent" id="consent" role="dialog" aria-label="Consentimiento de analítica">
+  <b>Analítica de uso.</b> Esta app puede usar Google Analytics para medir visitas de forma anónima. No es necesario para que funcione.
+  <div class="btns">
+    <button class="no" id="consentNo">Rechazar</button>
+    <button class="ok" id="consentOk">Aceptar</button>
+  </div>
+</div>
+
 <div class="panel">
-  <div class="verdict" id="verdict">
+  <div class="verdict" id="verdict" aria-live="polite">
     <div class="verdict-icon" id="vIcon">📍</div>
     <div class="verdict-text">
       <div class="verdict-main" id="vMain">ELIGE UN SITIO</div>
       <div class="verdict-sub" id="vSub">Busca una terraza o toca el mapa</div>
+      <span class="conf" id="vConf" hidden></span>
     </div>
   </div>
 
@@ -441,7 +495,7 @@ function currentDate() {
 const map = L.map('map', { zoomControl: false, attributionControl: true })
   .setView([42.8806, -8.5449], 17); // Santiago de Compostela por defecto
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap &copy; CARTO',
   maxZoom: 19, subdomains: 'abcd'
 }).addTo(map);
@@ -462,9 +516,10 @@ function metersOffset(lat, dxE, dyN) {
 function shadowVector(sun, height) {
   if (sun.altitude <= 0.5) return null;
   let len = height / Math.tan(sun.altitude * RAD);
-  if (len > 200) len = 200; // tope
+  let capped = false;
+  if (len > 200) { len = 200; capped = true; } // tope: cerca del amanecer/atardecer la sombra real puede ser mayor
   const dir = (sun.azimuth + 180) * RAD; // la sombra cae al lado opuesto del sol
-  return { dxE: len * Math.sin(dir), dyN: len * Math.cos(dir), len };
+  return { dxE: len * Math.sin(dir), dyN: len * Math.cos(dir), len, capped };
 }
 
 /* ============================================================
@@ -478,6 +533,8 @@ async function fetchBuildings(lat, lng) {
     if (d < 120 && state.buildings.length) return;
   }
   state.fetching = true;
+  state.buildings = []; // no reutilizar edificios de otra zona mientras carga
+  state.buildingsCenter = null;
   const q = `[out:json][timeout:25];(way["building"](around:280,${lat},${lng}););out body geom;`;
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter', {
@@ -490,11 +547,21 @@ async function fetchBuildings(lat, lng) {
     state.buildings = (data.elements || [])
       .filter(el => el.type === 'way' && el.geometry && el.geometry.length > 2)
       .map(el => {
-        let h = 9; // altura por defecto si OSM no la tiene
+        let h = 9, src = 'default'; // altura estimada si OSM no la tiene
         const t = el.tags || {};
-        if (t.height) { const p = parseFloat(t.height); if (!isNaN(p)) h = p; }
-        else if (t['building:levels']) { const lv = parseFloat(t['building:levels']); if (!isNaN(lv)) h = lv * 3; }
-        return { coords: el.geometry.map(g => [g.lat, g.lon]), height: h };
+        if (t.height) {
+          const p = parseFloat(t.height);
+          if (!isNaN(p)) { h = p; src = 'height'; }
+        } else if (t['building:levels']) {
+          const lv = parseFloat(t['building:levels']);
+          if (!isNaN(lv)) {
+            h = lv * 3;
+            const rl = parseFloat(t['roof:levels']);
+            if (!isNaN(rl)) h += rl * 2.5;
+            src = 'levels';
+          }
+        }
+        return { coords: el.geometry.map(g => [g.lat, g.lon]), height: h, src };
       });
     state.buildingsCenter = [lat, lng];
     render();
@@ -520,15 +587,15 @@ function render() {
   const sun = sunPosition(date, center.lat, center.lng);
   const night = sun.altitude <= 0;
 
-  // edificios (contorno sutil)
+  // edificios (contorno sutil sobre mapa claro)
   for (const b of state.buildings) {
     L.polygon(b.coords, {
-      color: '#3a3a48', weight: 1, fillColor: '#22222d',
-      fillOpacity: .5, interactive: false
+      color: '#8d8d9c', weight: 1, fillColor: '#b6b6c2',
+      fillOpacity: .45, interactive: false
     }).addTo(buildingLayer);
   }
 
-  // sombras
+  // sombras (cada polígono lleva la fuente de altura y si se aplicó el tope)
   const shadowPolys = [];
   if (!night) {
     for (const b of state.buildings) {
@@ -540,15 +607,15 @@ function render() {
         return [p[0] + dLat, p[1] + dLng];
       });
       // huella proyectada + cuadriláteros de conexión por arista
-      shadowPolys.push(proj);
+      shadowPolys.push({ poly: proj, src: b.src, capped: v.capped });
       for (let i = 0; i < pts.length; i++) {
         const j = (i + 1) % pts.length;
-        shadowPolys.push([pts[i], pts[j], proj[j], proj[i]]);
+        shadowPolys.push({ poly: [pts[i], pts[j], proj[j], proj[i]], src: b.src, capped: v.capped });
       }
     }
-    for (const poly of shadowPolys) {
-      L.polygon(poly, {
-        stroke: false, fillColor: '#070d1c', fillOpacity: .5, interactive: false
+    for (const s of shadowPolys) {
+      L.polygon(s.poly, {
+        stroke: false, fillColor: '#1b2a4a', fillOpacity: .38, interactive: false
       }).addTo(shadowLayer);
     }
   }
@@ -595,6 +662,17 @@ function inPoly(pt, poly) {
   return inside;
 }
 
+/* ============================================================
+   VEREDICTO — probabilístico, con confianza y estados especiales
+   ============================================================ */
+function setConf(level, label) {
+  const el = document.getElementById('vConf');
+  if (!level) { el.hidden = true; return; }
+  el.hidden = false;
+  el.className = 'conf ' + level;
+  el.textContent = label;
+}
+
 function verdict(p, sun, shadowPolys, night) {
   const box = document.getElementById('verdict');
   const icon = document.getElementById('vIcon');
@@ -606,37 +684,84 @@ function verdict(p, sun, shadowPolys, night) {
     icon.textContent = '🌙';
     main.textContent = 'NOCHE';
     main.className = 'verdict-main noche';
-    sub.textContent = 'El sol está bajo el horizonte. Aquí todo es sombra, campeón.';
+    sub.textContent = 'El sol está bajo el horizonte. Sombra garantizada.';
+    setConf(null);
     return;
   }
 
-  let shaded = false;
-  for (const poly of shadowPolys) {
-    if (inPoly(p, poly)) { shaded = true; break; }
+  // 1) Sin datos de edificios: no hay veredicto honesto posible
+  if (!state.buildings.length) {
+    icon.textContent = '📡';
+    main.textContent = 'DATOS INSUFICIENTES';
+    main.className = 'verdict-main noche';
+    sub.textContent = state.fetching
+      ? 'Cargando edificios de OpenStreetMap…'
+      : 'Sin edificios de OpenStreetMap en la zona. El resultado no sería fiable.';
+    setConf(null);
+    return;
   }
-  // también cuenta estar dentro del propio edificio
-  if (!shaded) {
-    for (const b of state.buildings) {
-      if (inPoly(p, b.coords)) { shaded = true; break; }
+
+  // 2) Punto sobre un edificio: no es sombra, es un punto mal colocado
+  for (const b of state.buildings) {
+    if (inPoly(p, b.coords)) {
+      icon.textContent = '🏢';
+      main.textContent = 'SOBRE UN EDIFICIO';
+      main.className = 'verdict-main aviso';
+      sub.textContent = 'El punto cae dentro de un edificio. Toca la posición exacta de la terraza (acera o plaza).';
+      setConf(null);
+      return;
     }
   }
 
-  const info = `Sol a ${Math.round(sun.altitude)}° de altura · azimut ${Math.round(sun.azimuth)}°` +
-    (state.buildings.length ? '' : ' · sin datos de edificios aún');
+  // 3) Sol o sombra, con nivel de confianza
+  let shaded = false, hitSrc = null, hitCapped = false;
+  for (const s of shadowPolys) {
+    if (inPoly(p, s.poly)) { shaded = true; hitSrc = s.src; hitCapped = s.capped; break; }
+  }
+
+  // edificios próximos al punto (<150 m) y calidad de sus alturas
+  let near = 0, nDefault = 0, nHeight = 0, anyCapped = false;
+  for (const s of shadowPolys) { if (s.capped) { anyCapped = true; break; } }
+  for (const b of state.buildings) {
+    const d = map.distance([p.lat, p.lng], b.coords[0]);
+    if (d < 150) {
+      near++;
+      if (b.src === 'default') nDefault++;
+      if (b.src === 'height') nHeight++;
+    }
+  }
+
+  const lowSun = sun.altitude < 10;
+  let conf, why;
+  if (lowSun || (shaded && hitCapped)) {
+    conf = 'baja'; why = 'sol muy bajo, sombras largas e imprecisas';
+  } else if (shaded && hitSrc === 'default') {
+    conf = 'baja'; why = 'altura del edificio estimada';
+  } else if (near > 0 && nDefault / near > 0.5) {
+    conf = 'baja'; why = 'mayoría de alturas estimadas';
+  } else if ((shaded && hitSrc === 'height') || (!shaded && near > 0 && nHeight / near >= 0.5)) {
+    conf = 'alta'; why = 'alturas registradas en OSM';
+  } else if (near === 0) {
+    conf = anyCapped ? 'baja' : 'media'; why = 'pocos edificios cercanos';
+  } else {
+    conf = 'media'; why = 'alturas parciales (plantas)';
+  }
+
+  const info = `Estimación · ${near} edificios a <150 m · sol ${Math.round(sun.altitude)}° · azimut ${Math.round(sun.azimuth)}°`;
 
   if (shaded) {
     box.classList.add('sombra');
     icon.textContent = '⛱️';
-    main.textContent = 'A LA SOMBRA';
+    main.textContent = 'PROBABLEMENTE A LA SOMBRA';
     main.className = 'verdict-main sombra';
-    sub.textContent = info;
   } else {
     box.classList.add('sol');
     icon.textContent = '☀️';
-    main.textContent = 'AL SOL';
+    main.textContent = 'PROBABLEMENTE AL SOL';
     main.className = 'verdict-main sol';
-    sub.textContent = info;
   }
+  sub.textContent = info;
+  setConf(conf, `Confianza ${conf} · ${why}`);
 }
 
 /* ============================================================
@@ -645,9 +770,10 @@ function verdict(p, sun, shadowPolys, night) {
 function setPoint(lat, lng, label) {
   state.point = { lat, lng };
   hideSplash();
+  maybeShowEstimateNotice();
   if (marker) marker.remove();
   marker = L.circleMarker([lat, lng], {
-    radius: 9, color: '#fff', weight: 2.5, fillColor: '#e8e8ee', fillOpacity: .95
+    radius: 9, color: '#0e0e12', weight: 2.5, fillColor: '#fff', fillOpacity: .95
   }).addTo(map);
   if (label) marker.bindTooltip(label, { direction: 'top', offset: [0, -10] });
   map.setView([lat, lng], Math.max(map.getZoom(), 17));
@@ -668,13 +794,21 @@ setTimeout(hideSplash, 6000);
    ============================================================ */
 const qInput = document.getElementById('q');
 const sugsBox = document.getElementById('sugs');
-let searchTimer = null, searchSeq = 0;
+let searchTimer = null, searchSeq = 0, searchCtrl = null;
+
+/* Escapa metacaracteres de regex para la consulta Overpass */
+function escapeOverpassRegex(value) {
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/[.*+?^${}()|[\]]/g, '\\$&');
+}
 
 qInput.addEventListener('input', () => {
   clearTimeout(searchTimer);
   const q = qInput.value.trim();
   if (q.length < 3) { sugsBox.classList.remove('open'); return; }
-  searchTimer = setTimeout(() => runSearch(q), 450);
+  searchTimer = setTimeout(() => runSearch(q), 900);
 });
 
 qInput.addEventListener('keydown', e => {
@@ -691,6 +825,10 @@ document.addEventListener('click', e => {
 
 async function runSearch(q) {
   const seq = ++searchSeq;
+  if (searchCtrl) searchCtrl.abort(); // cancela las peticiones de la búsqueda anterior
+  searchCtrl = new AbortController();
+  const signal = searchCtrl.signal;
+
   sugsBox.innerHTML = '<div class="sug-empty">Buscando…</div>';
   sugsBox.classList.add('open');
 
@@ -698,7 +836,7 @@ async function runSearch(q) {
   const results = [];
 
   // 1) Overpass: negocios por nombre cerca del centro del mapa
-  const safe = q.replace(/["\\]/g, '');
+  const safe = escapeOverpassRegex(q.slice(0, 60));
   const oq = `[out:json][timeout:10];(
     node["name"~"${safe}",i]["amenity"~"bar|cafe|restaurant|pub|biergarten|ice_cream"](around:6000,${c.lat},${c.lng});
     way["name"~"${safe}",i]["amenity"~"bar|cafe|restaurant|pub|biergarten|ice_cream"](around:6000,${c.lat},${c.lng});
@@ -707,12 +845,16 @@ async function runSearch(q) {
   const overpass = fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST',
     body: 'data=' + encodeURIComponent(oq),
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    signal
   }).then(r => r.ok ? r.json() : { elements: [] }).catch(() => ({ elements: [] }));
 
   // 2) Nominatim: direcciones y sitios en general
+  // Nota: el servidor público de Nominatim no permite autocompletado en producción;
+  // por eso el debounce es alto y las búsquedas se cancelan. Para tráfico real, sustituir por proveedor propio.
   const nominatim = fetch(
-    `https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=es&q=${encodeURIComponent(q)}`
+    `https://nominatim.openstreetmap.org/search?format=json&limit=5&accept-language=es&q=${encodeURIComponent(q)}`,
+    { signal }
   ).then(r => r.ok ? r.json() : []).catch(() => []);
 
   const [oData, nData] = await Promise.all([overpass, nominatim]);
@@ -880,6 +1022,55 @@ function showToast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 3500);
 }
+
+/* ============================================================
+   AVISO DE ESTIMACIÓN + CONSENTIMIENTO DE ANALÍTICA
+   ============================================================ */
+/* localStorage puede no estar disponible (iframe/preview): siempre con guarda */
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+const estNotice = document.getElementById('estNotice');
+document.getElementById('estNoticeClose').addEventListener('click', () => {
+  estNotice.classList.remove('open');
+  lsSet('terraza-est-ok', '1');
+});
+let estShown = false;
+function maybeShowEstimateNotice() {
+  if (estShown || lsGet('terraza-est-ok')) return;
+  estShown = true;
+  estNotice.classList.add('open');
+}
+
+/* Google Analytics solo tras consentimiento explícito */
+const GA_ID = 'G-TFETQKRHR4';
+function loadAnalytics() {
+  const s = document.createElement('script');
+  s.async = true;
+  s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+  document.head.appendChild(s);
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function () { dataLayer.push(arguments); };
+  gtag('js', new Date());
+  gtag('config', GA_ID, { anonymize_ip: true });
+}
+
+const consentBox = document.getElementById('consent');
+const consentChoice = lsGet('terraza-consent');
+if (consentChoice === 'yes') {
+  loadAnalytics();
+} else if (consentChoice !== 'no') {
+  consentBox.classList.add('open');
+}
+document.getElementById('consentOk').addEventListener('click', () => {
+  lsSet('terraza-consent', 'yes');
+  consentBox.classList.remove('open');
+  loadAnalytics();
+});
+document.getElementById('consentNo').addEventListener('click', () => {
+  lsSet('terraza-consent', 'no');
+  consentBox.classList.remove('open');
+});
 
 /* Service worker: solo si la app está servida como página propia.
    En un iframe/artifact falla en silencio y no pasa nada. */
