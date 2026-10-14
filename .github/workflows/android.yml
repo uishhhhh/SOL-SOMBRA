@@ -1,0 +1,103 @@
+# Compila la app Android (TWA) de SOLYSOMBRA y deja el resultado en la rama "builds".
+#
+# Se lanza sola cuando cambia algo en twa/, o a mano desde la pestaña Actions.
+# Necesita tres secrets en el repo (Settings → Secrets and variables → Actions):
+#   KEYSTORE_BASE64    el archivo signing.keystore codificado en base64
+#   KEYSTORE_PASSWORD  contraseña del keystore
+#   KEY_PASSWORD       contraseña de la llave (en PWABuilder suele ser la misma)
+
+name: Android (TWA)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['twa/**', '.github/workflows/android.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Comprobar secrets
+        id: secrets
+        env:
+          KS: ${{ secrets.KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.KEYSTORE_PASSWORD }}
+          KP: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KS" ] || [ -z "$KSP" ] || [ -z "$KP" ]; then
+            echo "Faltan secrets (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_PASSWORD). No se compila." | tee $RUNNER_TEMP/build.log
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-java@v4
+        if: steps.secrets.outputs.ready == 'true'
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.ready == 'true'
+        with:
+          node-version: '20'
+
+      - name: Generar proyecto Android con Bubblewrap
+        if: steps.secrets.outputs.ready == 'true'
+        run: |
+          set -o pipefail
+          npm install -g @bubblewrap/cli@1.27.0
+          mkdir -p ~/.bubblewrap
+          echo "{\"jdkPath\":\"$JAVA_HOME\",\"androidSdkPath\":\"$ANDROID_SDK_ROOT\"}" > ~/.bubblewrap/config.json
+          mkdir -p build && cp twa/twa-manifest.json build/
+          cd build
+          bubblewrap update --skipVersionUpgrade --manifest=./twa-manifest.json 2>&1 | tee -a $RUNNER_TEMP/build.log
+          grep -n "targetSdkVersion\|compileSdkVersion" app/build.gradle | tee -a $RUNNER_TEMP/build.log
+
+      - name: Compilar y firmar
+        if: steps.secrets.outputs.ready == 'true'
+        env:
+          KS: ${{ secrets.KEYSTORE_BASE64 }}
+          KSP: ${{ secrets.KEYSTORE_PASSWORD }}
+          KP: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -o pipefail
+          cd build
+          echo "$KS" | base64 -d > android.keystore
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          chmod +x gradlew
+          ./gradlew --no-daemon bundleRelease assembleRelease 2>&1 | tee -a $RUNNER_TEMP/build.log
+          BT=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
+          mkdir -p ../out
+          # AAB (para Play Store)
+          cp app/build/outputs/bundle/release/app-release.aab ../out/SOLYSOMBRA.aab
+          jarsigner -keystore android.keystore -storepass "$KSP" -keypass "$KP" \
+            -sigalg SHA256withRSA -digestalg SHA-256 ../out/SOLYSOMBRA.aab my-key-alias 2>&1 | tee -a $RUNNER_TEMP/build.log
+          # APK (para instalar a mano)
+          "$BT/zipalign" -f -p 4 app/build/outputs/apk/release/app-release-unsigned.apk ../out/aligned.apk
+          "$BT/apksigner" sign --ks android.keystore --ks-pass env:KSP --ks-key-alias my-key-alias \
+            --key-pass env:KP --out ../out/SOLYSOMBRA.apk ../out/aligned.apk 2>&1 | tee -a $RUNNER_TEMP/build.log
+          rm -f ../out/aligned.apk ../out/*.idsig android.keystore
+          "$BT/apksigner" verify --print-certs ../out/SOLYSOMBRA.apk | grep -i sha-256 | tee -a $RUNNER_TEMP/build.log
+
+      - name: Publicar resultado en la rama builds
+        if: always()
+        run: |
+          mkdir -p $RUNNER_TEMP/pub && cd $RUNNER_TEMP/pub
+          git init -q -b builds
+          cp $RUNNER_TEMP/build.log . 2>/dev/null || echo "sin log" > build.log
+          cp $GITHUB_WORKSPACE/out/* . 2>/dev/null || true
+          echo "Estado: ${{ job.status }} · commit ${{ github.sha }} · $(date -u)" > ESTADO.txt
+          git add -A
+          git -c user.name="github-actions" -c user.email="github-actions@users.noreply.github.com" commit -qm "Build ${{ github.sha }} (${{ job.status }})"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" builds
