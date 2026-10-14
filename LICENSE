@@ -1,0 +1,19 @@
+Copyright © 2026 Luis (github.com/uishhhhh). Todos los derechos reservados.
+All rights reserved.
+
+SOLYSOMBRA — código fuente, diseño, textos e iconos.
+
+Este repositorio es público para poder alojar la aplicación en GitHub Pages,
+pero eso NO concede ningún permiso de uso. Queda prohibida la copia,
+modificación, distribución, sublicencia o uso comercial total o parcial de
+este código y sus recursos sin autorización previa y por escrito del autor.
+
+Para solicitar permiso: abre un issue en este repositorio.
+
+------------------------------------------------------------------------
+Componentes de terceros (con sus propias licencias, no cubiertos por este aviso):
+
+- Datos cartográficos y de edificios: © colaboradores de OpenStreetMap,
+  bajo licencia ODbL — https://www.openstreetmap.org/copyright
+- Leaflet: © Volodymyr Agafonkin y colaboradores, licencia BSD-2-Clause
+- Android Browser Helper / Bubblewrap (app Android): © Google, Apache-2.0
