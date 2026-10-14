@@ -2,8 +2,8 @@
 // v2: cachés separadas, límite de teselas, network-first para el HTML,
 // solo peticiones GET y solo respuestas correctas.
 
-const APP_CACHE = 'terraza-app-v2';
-const TILE_CACHE = 'terraza-tiles-v1';
+const APP_CACHE = 'terraza-app-v3';
+const TILE_CACHE = 'terraza-tiles-v2'; // v2: purga teselas CARTO con marca de agua
 const TILE_LIMIT = 300; // máximo de teselas guardadas
 const CORE = ['./', './terraza-sol-sombra.html'];
 
@@ -62,7 +62,7 @@ self.addEventListener('fetch', e => {
   }
 
   // Teselas del mapa: red primero, cache de respaldo, con límite de tamaño
-  if (url.hostname.includes('basemaps.cartocdn.com')) {
+  if (url.hostname.includes('tile.openstreetmap.org')) {
     e.respondWith(
       fetch(req)
         .then(r => {

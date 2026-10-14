@@ -495,9 +495,9 @@ function currentDate() {
 const map = L.map('map', { zoomControl: false, attributionControl: true })
   .setView([42.8806, -8.5449], 17); // Santiago de Compostela por defecto
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-  maxZoom: 19, subdomains: 'abcd'
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap',
+  maxZoom: 19
 }).addTo(map);
 
 const shadowLayer = L.layerGroup().addTo(map);

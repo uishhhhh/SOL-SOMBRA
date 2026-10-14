@@ -316,6 +316,8 @@ body::after {
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+/* Mapa base OSM oscurecido (CARTO exige API key desde ago-2026) */
+.tiles-dark { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.5); }
 </style>
 </head>
 <body>
@@ -434,9 +436,10 @@ function currentDate() {
 const map = L.map('map', { zoomControl: false, attributionControl: true })
   .setView([42.8806, -8.5449], 17); // Santiago de Compostela por defecto
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO',
-  maxZoom: 19, subdomains: 'abcd'
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap',
+  maxZoom: 19,
+  className: 'tiles-dark'
 }).addTo(map);
 
 const shadowLayer = L.layerGroup().addTo(map);
