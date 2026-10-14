@@ -32,7 +32,7 @@
   "isChromeOSOnly": false,
   "isMetaQuest": false,
   "fullScopeUrl": "https://uishhhhh.github.io/SOL-SOMBRA/",
-  "minSdkVersion": 23,
+  "minSdkVersion": 24,
   "orientation": "portrait",
   "fingerprints": [],
   "additionalTrustedOrigins": [],
