@@ -484,6 +484,7 @@ const state = {
   buildingsCenter: null,
   fetching: false,
   fetchError: false,
+  source: 'osm',          // 'osm' | 'catastro' (respaldo)
 };
 
 function currentDate() {
@@ -554,12 +555,61 @@ async function overpassQuery(q, timeoutMs = 35000) {
   throw lastErr;
 }
 
+/* ============================================================
+   CATASTRO (INSPIRE BuildingPart) — respaldo si Overpass no responde.
+   Solo España (sin País Vasco ni Navarra). Radio pequeño: el coste del
+   servicio crece más que el área (120 m ≈ 6 s, 160 m ≈ 13 s, 280 m ≈ 48 s).
+   ============================================================ */
+const CATASTRO_URL = 'https://ovc.catastro.meh.es/INSPIRE/wfsBU.aspx';
+const CATASTRO_RADIUS = 120;
+
+/* GML -> [{coords:[[lat,lng],...], height, src}] — solo anillo exterior, partes con plantas > 0 */
+function parseCatastroGml(xmlText) {
+  const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('catastro: XML inválido');
+  if (doc.getElementsByTagNameNS('*', 'ExceptionReport').length) throw new Error('catastro: sin datos para esa zona');
+  const out = [];
+  for (const part of doc.getElementsByTagNameNS('*', 'BuildingPart')) {
+    const fEl = part.getElementsByTagNameNS('*', 'numberOfFloorsAboveGround')[0];
+    const floors = fEl ? parseInt(fEl.textContent, 10) : NaN;
+    if (!(floors > 0)) continue; // 0 plantas sobre rasante: sótanos, patios, etc.
+    for (const patch of part.getElementsByTagNameNS('*', 'PolygonPatch')) {
+      const ext = patch.getElementsByTagNameNS('*', 'exterior')[0];
+      const pl = ext && ext.getElementsByTagNameNS('*', 'posList')[0];
+      if (!pl) continue;
+      const n = pl.textContent.trim().split(/\s+/).map(Number);
+      const coords = [];
+      for (let i = 0; i + 1 < n.length; i += 2) coords.push([n[i], n[i + 1]]); // EPSG:4326 -> lat lon
+      if (coords.length > 2 && coords.every(c => isFinite(c[0]) && isFinite(c[1]))) {
+        out.push({ coords, height: floors * 3, src: 'levels' });
+      }
+    }
+  }
+  return out;
+}
+
+async function catastroBuildings(lat, lng, radiusM = CATASTRO_RADIUS, timeoutMs = 40000) {
+  const dLat = radiusM / 111320, dLng = radiusM / (111320 * Math.cos(lat * RAD));
+  const bbox = [lat - dLat, lng - dLng, lat + dLat, lng + dLng].join(',') + ',urn:ogc:def:crs:EPSG::4326';
+  const url = CATASTRO_URL + '?service=WFS&version=2.0.0&request=GetFeature&typeNames=bu:BuildingPart' +
+    '&srsName=EPSG:4326&bbox=' + encodeURIComponent(bbox);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) throw new Error('catastro ' + res.status);
+    const list = parseCatastroGml(await res.text());
+    if (!list.length) throw new Error('catastro: sin edificios');
+    return list;
+  } finally { clearTimeout(t); }
+}
+
 async function fetchBuildings(lat, lng) {
   if (state.fetching) return;
   // no repetir si ya tenemos edificios de una zona a <120m
   if (state.buildingsCenter) {
     const d = map.distance([lat, lng], state.buildingsCenter);
-    if (d < 120 && state.buildings.length) return;
+    if (d < (state.source === 'catastro' ? 30 : 120) && state.buildings.length) return;
   }
   state.fetching = true;
   state.buildings = []; // no reutilizar edificios de otra zona mientras carga
@@ -567,7 +617,19 @@ async function fetchBuildings(lat, lng) {
   const q = `[out:json][timeout:25];(way["building"](around:280,${lat},${lng}););out body geom;`;
   try {
     state.fetchError = false;
-    const data = await overpassQuery(q);
+    let data;
+    try {
+      data = await overpassQuery(q);
+    } catch (overpassErr) {
+      // Respaldo: Catastro (solo España). Si también falla, el catch exterior marca el error.
+      state.buildings = await catastroBuildings(lat, lng);
+      state.buildingsCenter = [lat, lng];
+      state.source = 'catastro';
+      render();
+      showToast('Overpass no responde: usando datos del Catastro (radio ' + CATASTRO_RADIUS + ' m)');
+      return;
+    }
+    state.source = 'osm';
     state.buildings = (data.elements || [])
       .filter(el => el.type === 'way' && el.geometry && el.geometry.length > 2)
       .map(el => {
@@ -778,6 +840,11 @@ function verdict(p, sun, shadowPolys, night) {
     conf = anyCapped ? 'baja' : 'media'; why = 'pocos edificios cercanos';
   } else {
     conf = 'media'; why = 'alturas parciales (plantas)';
+  }
+
+  if (state.source === 'catastro') {
+    if (conf === 'alta') conf = 'media';
+    why = 'Catastro, radio ' + CATASTRO_RADIUS + ' m · ' + why;
   }
 
   const info = `Estimación · ${near} edificios a <150 m · sol ${Math.round(sun.altitude)}° · azimut ${Math.round(sun.azimuth)}°`;
