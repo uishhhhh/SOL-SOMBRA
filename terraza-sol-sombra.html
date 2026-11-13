@@ -483,6 +483,7 @@ const state = {
   buildings: [],        // [{coords:[[lat,lng],...], height}]
   buildingsCenter: null,
   fetching: false,
+  fetchError: false,
 };
 
 function currentDate() {
@@ -525,6 +526,34 @@ function shadowVector(sun, height) {
 /* ============================================================
    OVERPASS — edificios cercanos
    ============================================================ */
+const OVERPASS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter'
+];
+
+async function overpassQuery(q, timeoutMs = 15000) {
+  let lastErr;
+  for (const url of OVERPASS) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(q),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        signal: ctrl.signal
+      });
+      if (!res.ok) throw new Error(url + ' ' + res.status);
+      const data = await res.json();
+      if (data.remark && /error|timed out|out of memory/i.test(data.remark)) throw new Error(data.remark);
+      return data;
+    } catch (e) { lastErr = e; }
+    finally { clearTimeout(t); }
+  }
+  throw lastErr;
+}
+
 async function fetchBuildings(lat, lng) {
   if (state.fetching) return;
   // no repetir si ya tenemos edificios de una zona a <120m
@@ -537,13 +566,8 @@ async function fetchBuildings(lat, lng) {
   state.buildingsCenter = null;
   const q = `[out:json][timeout:25];(way["building"](around:280,${lat},${lng}););out body geom;`;
   try {
-    const res = await fetch('https://overpass-api.de/api/interpreter', {
-      method: 'POST',
-      body: 'data=' + encodeURIComponent(q),
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
-    if (!res.ok) throw new Error('overpass ' + res.status);
-    const data = await res.json();
+    state.fetchError = false;
+    const data = await overpassQuery(q);
     state.buildings = (data.elements || [])
       .filter(el => el.type === 'way' && el.geometry && el.geometry.length > 2)
       .map(el => {
@@ -566,6 +590,9 @@ async function fetchBuildings(lat, lng) {
     state.buildingsCenter = [lat, lng];
     render();
   } catch (e) {
+    state.fetchError = true;
+    state.fetching = false;
+    render();
     showToast('No se pudieron cargar los edificios (Overpass saturado). Reintenta en un momento.');
   } finally {
     state.fetching = false;
@@ -692,11 +719,17 @@ function verdict(p, sun, shadowPolys, night) {
   // 1) Sin datos de edificios: no hay veredicto honesto posible
   if (!state.buildings.length) {
     icon.textContent = '📡';
-    main.textContent = 'DATOS INSUFICIENTES';
     main.className = 'verdict-main noche';
-    sub.textContent = state.fetching
-      ? 'Cargando edificios de OpenStreetMap…'
-      : 'Sin edificios de OpenStreetMap en la zona. El resultado no sería fiable.';
+    if (state.fetching) {
+      main.textContent = 'CARGANDO…';
+      sub.textContent = 'Descargando edificios de OpenStreetMap…';
+    } else if (state.fetchError) {
+      main.textContent = 'ERROR DE DATOS';
+      sub.textContent = 'No se pudieron descargar los edificios. Toca el punto otra vez para reintentar.';
+    } else {
+      main.textContent = 'DATOS INSUFICIENTES';
+      sub.textContent = 'Sin edificios de OpenStreetMap en la zona. El resultado no sería fiable.';
+    }
     setConf(null);
     return;
   }
