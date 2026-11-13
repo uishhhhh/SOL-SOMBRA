@@ -532,7 +532,7 @@ const OVERPASS = [
   'https://overpass.kumi.systems/api/interpreter'
 ];
 
-async function overpassQuery(q, timeoutMs = 15000) {
+async function overpassQuery(q, timeoutMs = 35000) {
   let lastErr;
   for (const url of OVERPASS) {
     const ctrl = new AbortController();
