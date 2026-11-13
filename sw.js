@@ -55,6 +55,7 @@ self.addEventListener('fetch', e => {
   if (
     url.hostname.includes('overpass') ||
     url.hostname.includes('nominatim') ||
+    url.hostname.includes('catastro') ||
     url.hostname.includes('googletagmanager') ||
     url.hostname.includes('google-analytics')
   ) {
